@@ -1,0 +1,17 @@
+{
+	"paymentSystemFtpHost": "ftpHost.com",
+	"paymentSystemFtpUser": "ftpUser",
+	"paymentSystemFtpPassword": "ftpPassword",
+	"confirmationFileFtpLocation": "/path/to/location/",
+	"invoiceFilesFtpLocation": "/path/to/location/",
+	"emailService": "gmail",
+	"emailUser": "emailUser@gmail.com",
+	"emailPassword": "emailPassword",
+	"logFile": "/path/to/file.txt"
+}
+
+
+
+
+
+
