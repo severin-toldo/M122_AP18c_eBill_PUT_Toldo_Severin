@@ -14,6 +14,7 @@ export class ConfigKeys {
             this.PAYMENT_SYSTEM_FTP_USER,
             this.PAYMENT_SYSTEM_FTP_PASSWORD,
             this.CONFIRMATION_FILE_FTP_LOCATION,
+            this.INVOICE_FILES_FTP_LOCATION,
             this.EMAIL_SERVICE,
             this.EMAIL_USER,
             this.EMAIL_PASSWORD

@@ -36,7 +36,7 @@ export class FtpClient {
         this.libraryFtpClient.on('error', (error) => this.ftpClientError$.next({status: 'error', payload: new ErrorCodeError(ErrorCode.FTP_CONNECTION_FAILED, error)}));
     }
 
-    public connect(host: string, user: string, password: string): Observable<Status> {
+    public connect(host: string, user: string, password: string, log = true): Observable<Status> {
         this.host = host;
         this.user = user;
         this.password = password;
@@ -53,15 +53,17 @@ export class FtpClient {
         )
             .pipe(map(status => CommonUtils.handleStatus(status)))
             .pipe(tap(() => {
-                this.logger.info('Customer system FTP client connected.');
-                this.logger.info('URL: ' + host);
-                this.logger.info('User: ' + user);
+                if (log) {
+                    this.logger.info('Customer system FTP client connected.');
+                    this.logger.info('URL: ' + host);
+                    this.logger.info('User: ' + user);
+                }
             }))
             .pipe(publishReplay(1))
             .pipe(refCount());
     }
 
-    public disconnect(): Observable<Status> {
+    public disconnect(log = true): Observable<Status> {
         this.libraryFtpClient.end();
 
         return race(
@@ -69,7 +71,11 @@ export class FtpClient {
             this.ftpClientError$
         )
             .pipe(map(status => CommonUtils.handleStatus(status)))
-            .pipe(tap(() => this.logger.info(`ftp client disconnected. (${this.host})`)))
+            .pipe(tap(() => {
+                if (log) {
+                    this.logger.info(`ftp client disconnected. (${this.host})`)
+                }
+            }))
     }
 
     public upload(sourcePath: string, targetPath: string): Observable<Status> {
