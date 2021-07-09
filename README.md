@@ -1,10 +1,6 @@
-TODO: Doku, example below
-TODO: Update config template
+# M122 AP18c eBill PUT Toldo Severin
 
-
-# M122 AP18c AutoBackup Toldo Severin
-
-Guide for the project M122 AP18c AutoBackup Toldo Severin
+Guide for the project M122 AP18c eBill PUT Toldo Severin
 
 ## Installation
 

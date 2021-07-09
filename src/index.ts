@@ -71,20 +71,6 @@ const CUSTOMER_INVOICES_ARCHIVE_FTP_LOCATION = normalizeFtpLocation(CommonUtils.
 const logger = buildLogger();
 
 
-// TODO logging
-// TOOD subscribe for each
-// TODO:  logger.info('Sending E-Mail...');
-
-
-
-
-
-
-
-
-
-
-
 // business logic
 logger.info('Starting ' + SCRIPT_NAME);
 
@@ -111,16 +97,6 @@ const confirmationFileInformation$: Observable<ConfirmationFileInformation> = pa
     }))
     .pipe(publishReplay(1))
     .pipe(refCount())
-
-
-
-
-// TODO delete conformation file on remote
-// confirmationFileInformation$
-
-
-
-
 
 
 // download invoice files to tmp directory
@@ -234,17 +210,6 @@ const emailSent$ = combineLatest(
     .pipe(refCount());
 
 
-
-
-
-// TODO delete getTmpDirPath() and getZipFilePath();
-// emailSent$ && zipFileUploadedToCustomerArchive$
-
-
-
-
-
-
 confirmationFileInformation$.subscribe(() => {
     logger.info('Successfully parsed confirmation file.');
 }, error => {
@@ -276,104 +241,7 @@ emailSent$.subscribe(() => {
 });
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// invoiceFilesDownloaded$.subscribe(res => console.log(res));
-
-// fileService.writeToFile(getTmpFilePath(fileName), fileData);
-
-
-
-
-
-
-// fileService.writeToFile(getLocalConfirmationFilePath(fileName), fileData);
-// return fileService.getTmpDirPath() + '/' + fileName;
-
-
-// delete successfully fetched invoices on ftp server
-// fileDownloadedLocally$
-// confirmationFileInformation$
-//     .pipe(switchMap(cfi => paymentSystemFtpClient.delete(getConfirmationFileFtpGetPath(cfi.originalFileName))))
-//     .subscribe(() => {
-//         logger.info('Successfully deleted confirmation file on remote.');
-//     }, error => {
-//         logger.error(`Error deleting confirmation file on remote: ${error.message}`);
-//         throw error;
-//     });
-
-
-
-
-// TODO delete local files -> invoice files, quitungs file, zip file
-
-
-
-
-
-
-
-
-// confirmationFileInformation$.subscribe(cfi => console.log(cfi));
-
-
-
-
-
-
-
-
-
-// TODO close ftp client
-// .subscribe(() => {
-//     logger.info('Successfully deleted confirmation file on remote.');
-//     confirmationFileDeleted$$.next();
-// }, error => {
-//     logger.error(`Error deleting confirmation file on remote: ${error.message}`);
-//     confirmationFileDeleted$$.next();
-//     throw error;
-// });
-//
-// someEvent$
-//     .pipe(switchMap(() => paymentSystemFtpClient.disconnect()))
-//     .subscribe(noop);
-
-
-// // disconnect ftp clients
-
-//
-// invoiceFilesUploadedToPaymentSystem$
-//     .pipe(switchMap(() => paymentSystemFtpClient.disconnect()))
-//     .subscribe(noop);
-
-
-
-
-
+// helper functions
 function formatTimestamp(timestamp: string): string {
     const tsParts = timestamp.split('');
 
