@@ -57,12 +57,14 @@ export class FileService {
         return path.replace(/^.*[\\\/]/, '');
     }
 
-    public zipFile(path: string): any {
-        return this.zipper
+    public zipFile(sourcePath: string, targetPath: string): string {
+        this.zipper
             .sync
-            .zip(path)
+            .zip(sourcePath)
             .compress()
-            .memory();
+            .save(targetPath);
+
+        return targetPath;
     }
 
     public deleteFile(path: string): void {
@@ -71,6 +73,12 @@ export class FileService {
 
     public writeToFile(path: string, content: string): void {
         this.fs.writeFileSync(path, content);
+    }
+
+    public createDirectoryIfNotExists(path: string): void {
+        if (!this.fs.existsSync(path)) {
+            this.fs.mkdirSync(path);
+        }
     }
 }
 

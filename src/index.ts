@@ -1,6 +1,6 @@
 // #!/usr/bin/env node
 
-import {debounceTime, delay, map, publishReplay, refCount, switchMap, tap} from 'rxjs/operators';
+import {debounceTime, delay, map, min, publishReplay, refCount, switchMap, tap} from 'rxjs/operators';
 import {FileService} from "./service/file.service";
 import {CommonUtils} from "./common.utils";
 import {ConfigKeys} from "./model/config/config-keys.model";
@@ -8,6 +8,9 @@ import {combineLatest, noop, Observable, Subject} from "rxjs";
 import {Status} from "./model/status.model";
 import {FtpClient} from "./model/ftp/ftp-client.model";
 import {ConfirmationFileInformation} from "./model/confirmation-file-information.model";
+import {EmailService} from "./service/email.service";
+import {XmlToSimpleInvoiceConverter} from "./converter/xml-to-simple-invoice.converter";
+import {SimpleInvoice} from "./model/invoice/simple-invoice.model";
 
 
 /*
@@ -34,17 +37,18 @@ const {format} = require('logform');
 const CSV_TO_JSON = require('csvtojson');
 const DATE_FORMAT = require("dateformat");
 const SYNCHRONIZED_PROMISE = require('synchronized-promise');
+var XML_2_JSON = require('xml2json');
 
 // services
 const fileService = new FileService(FS, OS, ARCHIVER, MD5, ZIPPER);
+const emailService = new EmailService(NODEMAILER);
 
 // converters
-// const csvToInvoiceConverter = new CsvToInvoiceConverter(CSV_TO_JSON, DATE_FORMAT, SYNCHRONIZED_PROMISE);
-// const invoiceToTxtConverter = new InvoiceToTxtConverter(DATE_FORMAT);
-// const invoiceToXmlConverter = new InvoiceToXmlConverter(DATE_FORMAT);
+const xmlToSimpleInvoiceConverter = new XmlToSimpleInvoiceConverter(XML_2_JSON);
 
 // global constants
 const SCRIPT_NAME = 'eBillPut';
+const EBILL_PUT_TMP_DIR_NAME = 'ebillPutTmpDir';
 const DEFAULT_CONFIG_FILE_NAME = 'ebill-put-config.json';
 const DEFAULT_CONFIG_FILE_PATH = fileService.getHomeDirPath() + '/' + DEFAULT_CONFIG_FILE_NAME;
 const CONFIG = buildConfig();
@@ -53,29 +57,48 @@ const LOG_FILE_PATH = CommonUtils.getConfigKeyValue(ConfigKeys.LOG_FILE_PATH, CO
 const PAYMENT_SYSTEM_FTP_HOST = CommonUtils.getConfigKeyValue(ConfigKeys.PAYMENT_SYSTEM_FTP_HOST, CONFIG);
 const PAYMENT_SYSTEM_FTP_USER = CommonUtils.getConfigKeyValue(ConfigKeys.PAYMENT_SYSTEM_FTP_USER, CONFIG);
 const PAYMENT_SYSTEM_FTP_PASSWORD = CommonUtils.getConfigKeyValue(ConfigKeys.PAYMENT_SYSTEM_FTP_PASSWORD, CONFIG);
+const CUSTOMER_SYSTEM_FTP_HOST = CommonUtils.getConfigKeyValue(ConfigKeys.CUSTOMER_SYSTEM_FTP_HOST, CONFIG);
+const CUSTOMER_SYSTEM_FTP_USER = CommonUtils.getConfigKeyValue(ConfigKeys.CUSTOMER_SYSTEM_FTP_USER, CONFIG);
+const CUSTOMER_SYSTEM_FTP_PASSWORD = CommonUtils.getConfigKeyValue(ConfigKeys.CUSTOMER_SYSTEM_FTP_PASSWORD, CONFIG);
 const EMAIL_SERVICE = CommonUtils.getConfigKeyValue(ConfigKeys.EMAIL_SERVICE, CONFIG);
 const EMAIL_USER = CommonUtils.getConfigKeyValue(ConfigKeys.EMAIL_USER, CONFIG);
 const EMAIL_PASSWORD = CommonUtils.getConfigKeyValue(ConfigKeys.EMAIL_PASSWORD, CONFIG);
 const CONFIRMATION_FILE_FTP_LOCATION = normalizeFtpLocation(CommonUtils.getConfigKeyValue(ConfigKeys.CONFIRMATION_FILE_FTP_LOCATION, CONFIG));
 const INVOICE_FILES_FTP_LOCATION = normalizeFtpLocation(CommonUtils.getConfigKeyValue(ConfigKeys.INVOICE_FILES_FTP_LOCATION, CONFIG));
+const CUSTOMER_INVOICES_ARCHIVE_FTP_LOCATION = normalizeFtpLocation(CommonUtils.getConfigKeyValue(ConfigKeys.CUSTOMER_INVOICES_ARCHIVE_FTP_LOCATION, CONFIG));
+
 
 const logger = buildLogger();
+
+
+// TODO logging
+// TOOD subscribe for each
+// TODO:  logger.info('Sending E-Mail...');
+
+
+
+
+
+
+
+
+
 
 
 // business logic
 logger.info('Starting ' + SCRIPT_NAME);
 
 
+// create tmp folder for E-Bill script
+fileService.createDirectoryIfNotExists(getTmpDirPath());
 
 
-
-
-
-
-
-// set up and connect ftp client
+// set up and connect ftp clients
 const paymentSystemFtpClient = new FtpClient(FTP, fileService, logger);
+const customerSystemFtpClient = new FtpClient(FTP, fileService, logger);
+
 const paymentSystemFtpClientConnected$ = paymentSystemFtpClient.connect(PAYMENT_SYSTEM_FTP_HOST, PAYMENT_SYSTEM_FTP_USER, PAYMENT_SYSTEM_FTP_PASSWORD);
+const customerSystemFtpClientConnected$ = customerSystemFtpClient.connect(CUSTOMER_SYSTEM_FTP_HOST, CUSTOMER_SYSTEM_FTP_USER, CUSTOMER_SYSTEM_FTP_PASSWORD);
 
 
 // fetch confirmation file and parse information
@@ -86,11 +109,21 @@ const confirmationFileInformation$: Observable<ConfirmationFileInformation> = pa
     .pipe(map((confirmationFileDownloadStatus: Status) => {
         return parseConfirmationFile(confirmationFileDownloadStatus);
     }))
-    .pipe(tap(() => logger.info('Successfully parsed confirmation file.')))
     .pipe(publishReplay(1))
-    .pipe(refCount());
+    .pipe(refCount())
 
 
+
+
+// TODO delete conformation file on remote
+// confirmationFileInformation$
+
+
+
+
+
+
+// download invoice files to tmp directory
 const invoiceFilesInformation$: Observable<any> = combineLatest(
     confirmationFileInformation$,
     paymentSystemFtpClientConnected$
@@ -120,7 +153,7 @@ const invoiceFilesInformation$: Observable<any> = combineLatest(
 
             const fileName = res.response.payload.fileName;
             const fileData = res.response.payload.fileData;
-            const localFilePath = fileService.getTmpDirPath() + '/' + fileName;
+            const localFilePath = getTmpFilePath(fileName);
 
             fileService.writeToFile(localFilePath, fileData);
 
@@ -128,13 +161,137 @@ const invoiceFilesInformation$: Observable<any> = combineLatest(
                 filePath: localFilePath
             }
         });
-    }));
+    }))
+    .pipe(publishReplay(1))
+    .pipe(refCount());
 
+
+// create zip file
 const zipFile$ = combineLatest(
     confirmationFileInformation$,
     invoiceFilesInformation$
 )
-    .pipe()
+    .pipe(map(() => fileService.zipFile(getTmpDirPath(), getZipFilePath())))
+    .pipe(publishReplay(1))
+    .pipe(refCount());
+
+
+// upload zip file to customer archive
+const zipFileUploadedToCustomerArchive$ = combineLatest(
+    zipFile$,
+    customerSystemFtpClientConnected$
+)
+    .pipe(switchMap(([zipFile, _]) => customerSystemFtpClient.upload(zipFile, CUSTOMER_INVOICES_ARCHIVE_FTP_LOCATION + buildZipFileName())));
+
+
+// send email
+const emailSent$ = combineLatest(
+    zipFile$,
+    confirmationFileInformation$,
+    invoiceFilesInformation$
+)
+    .pipe(switchMap(([zipFile, cfi, ifi]) => {
+        const sendMailObserbales: Observable<Status>[] = ifi
+            .filter(i => i.filePath.endsWith('.xml'))
+            .map((i => {
+                const fileContent = fileService.getFileContent(i.filePath);
+                return xmlToSimpleInvoiceConverter.convert(fileContent);
+            }))
+            .map(invoice => {
+                let text = [];
+
+                text.push(`Sehr geehrter ${invoice.recipientName}`);
+                text.push(``);
+                text.push(`Am ${formatTimestamp(cfi.timestamp)} wurde die erfolgreiche Bearbeitung der Rechnung ${invoice.invoiceNumber} vom Zahlungsystem "${PAYMENT_SYSTEM_FTP_HOST}" gemeldet.`);
+                text.push(``);
+                text.push(`Mit freundlichen Grüssen`);
+                text.push(`${invoice.customerName}`);
+
+                text = text.map(e => e + '\n');
+
+
+                const mailOptions: any = {
+                    from: 'severin.toldo@edu.tbz.ch',
+                    to: invoice.recipientEmail,
+                    subject: `Erfolgte Verarbeitung Rechnung ${invoice.invoiceNumber}`,
+                    text: text.join(''),
+                    attachments: [
+                        {
+                            filename: buildZipFileName(),
+                            path: zipFile
+                        }
+                    ]
+                };
+
+                return emailService
+                    .createTransporter(EMAIL_SERVICE, EMAIL_USER, EMAIL_PASSWORD)
+                    .sendEmail(mailOptions);
+            });
+
+        return combineLatest(...sendMailObserbales);
+    }))
+    .pipe(publishReplay(1))
+    .pipe(refCount());
+
+
+
+
+
+// TODO delete getTmpDirPath() and getZipFilePath();
+// emailSent$ && zipFileUploadedToCustomerArchive$
+
+
+
+
+
+
+confirmationFileInformation$.subscribe(() => {
+    logger.info('Successfully parsed confirmation file.');
+}, error => {
+    logger.error(`Error parsing confirmation file.: ${error.message}`);
+});
+
+invoiceFilesInformation$.subscribe(() => {
+    logger.info('Successfully downloaded invoices files.');
+}, error => {
+    logger.error(`Error downloading invoice files: ${error.message}`);
+});
+
+zipFile$.subscribe(() => {
+    logger.info('Successfully created tip file.');
+}, error => {
+    logger.error(`Error creating zip file: ${error.message}`);
+});
+
+zipFileUploadedToCustomerArchive$.subscribe(() => {
+    logger.info('Successfully uploaded zip file to customer archive.');
+}, error => {
+    logger.error(`Error uploading zip file to customer archive: ${error.message}`);
+});
+
+emailSent$.subscribe(() => {
+    logger.info(' Successfully sent invoice email.');
+}, error => {
+    logger.error(`Error sending invoice email: ${error.message}`);
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -181,7 +338,7 @@ const zipFile$ = combineLatest(
 
 
 
-confirmationFileInformation$.subscribe(cfi => console.log(cfi));
+// confirmationFileInformation$.subscribe(cfi => console.log(cfi));
 
 
 
@@ -217,100 +374,18 @@ confirmationFileInformation$.subscribe(cfi => console.log(cfi));
 
 
 
-//
-//
-// // create and upload txt and xml files
-// const invoiceFilesUploadedToPaymentSystem$ = new Subject<void>();
-//
-// combineLatest(
-//     invoices$,
-//     paymentSystemFtpClientConnected$
-// )
-//     .pipe(map(([invoices, _]) => {
-//         return invoices.map(invoice => {
-//             const txtStr = invoiceToTxtConverter.convert(invoice);
-//             const xmlStr = invoiceToXmlConverter.convert(invoice);
-//
-//             const txtFileName = getInvoiceTxtFileName(invoice);
-//             const xmlFileName = getInvoiceXmlFileName(invoice);
-//
-//             const txtFilePath = getInvoiceTxtFilePath(invoice);
-//             const xmlFilePath = getInvoiceXmlFilePath(invoice);
-//
-//             fileService.writeToFile(txtFilePath, txtStr);
-//             fileService.writeToFile(xmlFilePath, xmlStr);
-//
-//             return {
-//                 txt: {
-//                     fileName: txtFileName,
-//                     filePath: txtFilePath,
-//                 },
-//                 xml: {
-//                     fileName: xmlFileName,
-//                     filePath: xmlFilePath,
-//                 }
-//             };
-//         });
-//     }))
-//     .pipe(tap(() => logger.info('Successfully create TXT and XML files for invoices.')))
-//     .pipe(switchMap((filesToUploadInformation: any[]) => {
-//         const uploadFilesObservables: Observable<Status>[] = [];
-//
-//         filesToUploadInformation.forEach((info: any) => {
-//             uploadFilesObservables.push(paymentSystemFtpClient.upload(info.txt.filePath, INVOICE_PUT_FTP_LOCATION + info.txt.fileName));
-//             uploadFilesObservables.push(paymentSystemFtpClient.upload(info.xml.filePath, INVOICE_PUT_FTP_LOCATION + info.xml.fileName));
-//         });
-//
-//         return combineLatest(...uploadFilesObservables);
-//     }))
-//     .pipe(tap((res: Status[]) => {
-//         res
-//             .map(e => e.payload)
-//             .forEach(tmpFilePathToDelete => {
-//                 fileService.deleteFile(tmpFilePathToDelete);
-//             });
-//     }))
-//     .subscribe(() => {
-//         logger.info('Successfully uploaded TXT and XML files for invoices to remote.');
-//         invoiceFilesUploadedToPaymentSystem$.next();
-//     }, error => {
-//         logger.error(`Error uploading TXT and XML files for invoices to remote: ${error.message}`);
-//         invoiceFilesUploadedToPaymentSystem$.next();
-//         throw error;
-//     });
-//
-//
-//
-//
-//
-// // helper functions
-// function getInvoiceTxtFilePath(invoice: Invoice): string {
-//     return getInvoiceOutputFilePath(invoice, 'txt');
-// }
-//
-// function getInvoiceXmlFilePath(invoice: Invoice): string {
-//     return getInvoiceOutputFilePath(invoice, 'xml');
-// }
-//
-// function getInvoiceOutputFilePath(invoice: Invoice, fileExtension: string): string {
-//     return  fileService.getTmpDirPath() + '/' + getInvoiceOutputFileName(invoice, fileExtension);
-// }
-//
-// function getInvoiceTxtFileName(invoice: Invoice): string {
-//     return getInvoiceOutputFileName(invoice, 'txt');
-// }
-//
-// function getInvoiceXmlFileName(invoice: Invoice): string {
-//     return getInvoiceOutputFileName(invoice, 'xml');
-// }
-//
-// function getInvoiceOutputFileName(invoice: Invoice, fileExtension: string): string {
-//     return  `${invoice.recipient.recipientNumber}_${invoice.invoiceNumber}.${fileExtension}`;
-// }
-//
-//
+function formatTimestamp(timestamp: string): string {
+    const tsParts = timestamp.split('');
 
+    const year = tsParts[0] + tsParts[1] + tsParts[2] + tsParts[3];
+    const month = tsParts[4] + tsParts[5];
+    const day = tsParts[6] + tsParts[7];
+    const hours = tsParts[9] + tsParts[10];
+    const minutes = tsParts[11] + tsParts[12];
+    const seconds = tsParts[13] + tsParts[14];
 
+    return `${day}.${month}.${year} um ${hours}:${minutes}:${seconds}`;
+}
 
 function parseConfirmationFile(confirmationFileDownloadStatus: Status) {
     const fileName = confirmationFileDownloadStatus.payload.fileName;
@@ -336,8 +411,22 @@ function parseConfirmationFile(confirmationFileDownloadStatus: Status) {
     return cfi;
 }
 
+function getZipFilePath() {
+    return fileService.getTmpDirPath() + '/' + buildZipFileName();
+}
+
+function buildZipFileName(): string {
+    const currentTimeStamp = Math.floor(Date.now() / 1000);
+    return 'invoices_' + currentTimeStamp + '.zip';
+}
+
+
 function getTmpFilePath(fileName: string) {
-    return fileService.getTmpDirPath() + '/' + fileName;
+    return getTmpDirPath() + fileName;
+}
+
+function getTmpDirPath() {
+    return fileService.getTmpDirPath() + '/' + EBILL_PUT_TMP_DIR_NAME + '/';
 }
 
 function getConfirmationFileFtpGetPath(fileName: string): string {

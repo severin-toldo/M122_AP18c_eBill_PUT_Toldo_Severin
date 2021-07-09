@@ -17,7 +17,11 @@ export class ConfigKeys {
             this.INVOICE_FILES_FTP_LOCATION,
             this.EMAIL_SERVICE,
             this.EMAIL_USER,
-            this.EMAIL_PASSWORD
+            this.EMAIL_PASSWORD,
+            this.CUSTOMER_SYSTEM_FTP_HOST,
+            this.CUSTOMER_SYSTEM_FTP_USER,
+            this.CUSTOMER_SYSTEM_FTP_PASSWORD,
+            this.CUSTOMER_INVOICES_ARCHIVE_FTP_LOCATION
         ];
     }
 
@@ -70,5 +74,27 @@ export class ConfigKeys {
         key: 'emailPassword',
         required: true
     };
+
+    public static readonly CUSTOMER_SYSTEM_FTP_HOST: ConfigKey = {
+        key: 'customerSystemFtpHost',
+        required: true
+    };
+
+    public static readonly CUSTOMER_SYSTEM_FTP_USER: ConfigKey = {
+        key: 'customerSystemFtpUser',
+        required: true
+    };
+
+    public static readonly CUSTOMER_SYSTEM_FTP_PASSWORD: ConfigKey = {
+        key: 'customerSystemFtpPassword',
+        required: true
+    };
+
+    public static readonly CUSTOMER_INVOICES_ARCHIVE_FTP_LOCATION: ConfigKey = {
+        key: 'customerInvoicesArchiveFtpLocation',
+        required: true
+    };
+
+
 
 }
